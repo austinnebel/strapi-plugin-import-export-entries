@@ -14,7 +14,7 @@ export const ImportEditor = ({ file, data, dataFormat, slug, onDataChanged, onOp
   const { i18n } = useI18n();
   const [attributeNames, setAttributeNames] = useState([]);
 
-  const { options, getOption, setOption } = useForm({ idField: 'id', allowNonExistentImages: false });
+  const { options, getOption, setOption } = useForm({ idField: 'id', allowNonExistentImages: true });
 
   useEffect(() => {
     const fetchAttributeNames = async () => {
