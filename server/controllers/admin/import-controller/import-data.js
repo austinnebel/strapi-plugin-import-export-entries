@@ -19,7 +19,7 @@ function importData(ctx) {
             return ctx.forbidden();
         }
         const { user } = ctx.state;
-        const { slug, data: dataRaw, format, idField } = ctx.request.body;
+        const { slug, data: dataRaw, format, idField, allowNonExistentImages } = ctx.request.body;
         const fileContent = yield getService('import').parseInputData(format, dataRaw, { slug });
         let res;
         if ((fileContent === null || fileContent === void 0 ? void 0 : fileContent.version) === 2) {
@@ -27,6 +27,7 @@ function importData(ctx) {
                 slug,
                 user,
                 idField,
+                allowNonExistentImages,
             });
         }
         else {

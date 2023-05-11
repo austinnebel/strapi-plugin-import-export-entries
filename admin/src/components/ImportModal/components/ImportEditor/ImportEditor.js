@@ -1,5 +1,6 @@
 import { Box } from '@strapi/design-system/Box';
 import { Option, Select } from '@strapi/design-system/Select';
+import { Checkbox } from '@strapi/design-system/Checkbox';
 import { Tab, TabGroup, TabPanel, TabPanels, Tabs } from '@strapi/design-system/Tabs';
 import { Typography } from '@strapi/design-system/Typography';
 import React, { useEffect, useState } from 'react';
@@ -13,7 +14,7 @@ export const ImportEditor = ({ file, data, dataFormat, slug, onDataChanged, onOp
   const { i18n } = useI18n();
   const [attributeNames, setAttributeNames] = useState([]);
 
-  const { options, getOption, setOption } = useForm({ idField: 'id' });
+  const { options, getOption, setOption } = useForm({ idField: 'id', allowNonExistentImages: false });
 
   useEffect(() => {
     const fetchAttributeNames = async () => {
@@ -50,7 +51,7 @@ export const ImportEditor = ({ file, data, dataFormat, slug, onDataChanged, onOp
             </Box>
           </TabPanel>
           <TabPanel>
-            <Box color="neutral800" paddingTop={4} paddingBottom={4} background="neutral0">
+            <Box color="neutral800" paddingTop={4} paddingBottom={4} background="neutral0" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               <Select
                 label={i18n('plugin.form.field.id-field.label')}
                 hint={i18n('plugin.form.field.id-field.hint')}
@@ -64,6 +65,13 @@ export const ImportEditor = ({ file, data, dataFormat, slug, onDataChanged, onOp
                   </Option>
                 ))}
               </Select>
+              <Checkbox
+                onValueChange={(value) => setOption('allowNonExistentImages', value)}
+                value={getOption('allowNonExistentImages')}
+                hint={i18n('plugin.form.field.allow-non-existent-images-field.hint')}
+              >
+                {i18n('plugin.form.field.allow-non-existent-images-field.label')}
+              </Checkbox>
             </Box>
           </TabPanel>
         </TabPanels>

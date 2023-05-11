@@ -56,12 +56,15 @@ const importDataV2 = async (
     slug: slugArg,
     user,
     idField,
+    allowNonExistentImages,
   }: {
     slug: SchemaUID;
     /** User importing the data. */
     user: User;
     /** Field used as unique identifier. */
     idField: string;
+    /** If true, failure importing images will not cause errors. */
+    allowNonExistentImages: boolean;
   },
 ) => {
   const { data } = fileContent;
@@ -91,6 +94,7 @@ const importDataV2 = async (
       importStage: 'simpleAttributes',
       fileIdToDbId,
       componentsDataStore,
+      allowNonExistentImages,
     });
     failures.push(...res.failures);
   }
@@ -105,6 +109,7 @@ const importDataV2 = async (
       importStage: 'relationAttributes',
       fileIdToDbId,
       componentsDataStore,
+      allowNonExistentImages,
     });
     failures.push(...res.failures);
   }
@@ -173,7 +178,16 @@ const importContentTypeSlug = async (
     importStage,
     fileIdToDbId,
     componentsDataStore,
-  }: { slug: SchemaUID; user: User; idField?: string; importStage: ImportStage; fileIdToDbId: IdMapper; componentsDataStore: Partial<Record<SchemaUID, SlugEntries>> },
+    allowNonExistentImages,
+  }: {
+    slug: SchemaUID;
+    user: User;
+    idField?: string;
+    importStage: ImportStage;
+    fileIdToDbId: IdMapper;
+    componentsDataStore: Partial<Record<SchemaUID, SlugEntries>>;
+    allowNonExistentImages: boolean;
+  },
 ): Promise<{ failures: ImportFailures[] }> => {
   let fileEntries = toPairs(slugEntries);
 
@@ -198,7 +212,7 @@ const importContentTypeSlug = async (
   const failures: ImportFailures[] = [];
   for (let [fileId, fileEntry] of fileEntries) {
     try {
-      await updateOrCreate(user, slug, fileId, fileEntry, idField, { importStage, fileIdToDbId, componentsDataStore });
+      await updateOrCreate(user, slug, fileId, fileEntry, idField, { importStage, fileIdToDbId, componentsDataStore, allowNonExistentImages });
     } catch (err: any) {
       strapi.log.error(err);
       failures.push({ error: err, data: fileEntry });
@@ -216,7 +230,12 @@ const updateOrCreate = async (
   fileId: FileId,
   fileEntryArg: FileEntry,
   idFieldArg: string | undefined,
-  { importStage, fileIdToDbId, componentsDataStore }: { importStage: ImportStage; fileIdToDbId: IdMapper; componentsDataStore: Partial<Record<SchemaUID, SlugEntries>> },
+  {
+    importStage,
+    fileIdToDbId,
+    componentsDataStore,
+    allowNonExistentImages,
+  }: { importStage: ImportStage; fileIdToDbId: IdMapper; componentsDataStore: Partial<Record<SchemaUID, SlugEntries>>; allowNonExistentImages: boolean },
 ) => {
   const schema = getModel(slug);
   const idField = idFieldArg || schema?.pluginOptions?.['import-export-entries']?.idField || 'id';
@@ -230,7 +249,7 @@ const updateOrCreate = async (
       .concat('id', 'localizations', 'locale');
     fileEntry = pick(fileEntry, attributeNames);
   } else if (importStage === 'relationAttributes') {
-    fileEntry = setComponents(schema, fileEntry, { fileIdToDbId, componentsDataStore });
+    fileEntry = setComponents(schema, fileEntry, { fileIdToDbId, componentsDataStore, allowNonExistentImages });
     const attributeNames = getModelAttributes(slug, { filterType: ['component', 'dynamiczone', 'media', 'relation'] })
       .map(({ name }) => name)
       .concat('id', 'localizations', 'locale');
@@ -273,7 +292,11 @@ function removeComponents(schema: Schema, fileEntry: FileEntry) {
 function setComponents(
   schema: Schema,
   fileEntry: FileEntry,
-  { fileIdToDbId, componentsDataStore }: { fileIdToDbId: IdMapper; componentsDataStore: Partial<Record<SchemaUID, SlugEntries>> },
+  {
+    fileIdToDbId,
+    componentsDataStore,
+    allowNonExistentImages,
+  }: { fileIdToDbId: IdMapper; componentsDataStore: Partial<Record<SchemaUID, SlugEntries>>; allowNonExistentImages: boolean },
 ) {
   const store: Record<string, any> = {};
   for (const [attributeName, attribute] of Object.entries(schema.attributes)) {
@@ -283,20 +306,26 @@ function setComponents(
     } else if (isComponentAttribute(attribute)) {
       if (attribute.repeatable) {
         store[attributeName] = (attributeValue as (number | string)[]).map((componentFileId) =>
-          getComponentData(attribute.component, `${componentFileId}`, { fileIdToDbId, componentsDataStore }),
+          getComponentData(attribute.component, `${componentFileId}`, { fileIdToDbId, componentsDataStore, allowNonExistentImages }),
         );
       } else {
-        store[attributeName] = getComponentData(attribute.component, `${attributeValue as number | string}`, { fileIdToDbId, componentsDataStore });
+        store[attributeName] = getComponentData(attribute.component, `${attributeValue as number | string}`, { fileIdToDbId, componentsDataStore, allowNonExistentImages });
       }
     } else if (isDynamicZoneAttribute(attribute)) {
-      store[attributeName] = (attributeValue as FileEntryDynamicZone[]).map(({ __component, id }) => getComponentData(__component, `${id}`, { fileIdToDbId, componentsDataStore }));
+      store[attributeName] = (attributeValue as FileEntryDynamicZone[]).map(({ __component, id }) =>
+        getComponentData(__component, `${id}`, { fileIdToDbId, componentsDataStore, allowNonExistentImages }),
+      );
     } else if (isMediaAttribute(attribute)) {
       if (attribute.multiple) {
-        store[attributeName] = (attributeValue as (number | string)[]).map((id) => fileIdToDbId.getMapping('plugin::upload.file', id)).filter((id) => id !== undefined);
+        store[attributeName] = (attributeValue as (number | string)[]).map((id) => fileIdToDbId.getMapping('plugin::upload.file', id));
+
+        if (allowNonExistentImages) {
+          store[attributeName] = store[attributeName].filter((id: number | string | undefined) => id !== undefined);
+        }
       } else {
         store[attributeName] = fileIdToDbId.getMapping('plugin::upload.file', attributeValue as number | string);
-        // if the media wasn't found remove it from the update
-        if (!store[attributeName]) {
+        // if the media wasn't found and we are allowing non-existent media, delete from update
+        if (!store[attributeName] && allowNonExistentImages) {
           delete fileEntry[attributeName];
           delete store[attributeName];
         }
@@ -312,7 +341,11 @@ function getComponentData(
   slug: SchemaUID,
   /** File id of the component. */
   fileId: FileId,
-  { fileIdToDbId, componentsDataStore }: { fileIdToDbId: IdMapper; componentsDataStore: Partial<Record<SchemaUID, SlugEntries>> },
+  {
+    fileIdToDbId,
+    componentsDataStore,
+    allowNonExistentImages,
+  }: { fileIdToDbId: IdMapper; componentsDataStore: Partial<Record<SchemaUID, SlugEntries>>; allowNonExistentImages: boolean },
 ): Record<string, any> | null {
   const schema = getModel(slug);
   const fileEntry = componentsDataStore[slug]![`${fileId}`];
@@ -333,20 +366,26 @@ function getComponentData(
     if (isComponentAttribute(attribute)) {
       if (attribute.repeatable) {
         store[attributeName] = (attributeValue as (number | string)[]).map((componentFileId) =>
-          getComponentData(attribute.component, `${componentFileId}`, { fileIdToDbId, componentsDataStore }),
+          getComponentData(attribute.component, `${componentFileId}`, { fileIdToDbId, componentsDataStore, allowNonExistentImages }),
         );
       } else {
-        store[attributeName] = getComponentData(attribute.component, `${attributeValue as number | string}`, { fileIdToDbId, componentsDataStore });
+        store[attributeName] = getComponentData(attribute.component, `${attributeValue as number | string}`, { fileIdToDbId, componentsDataStore, allowNonExistentImages });
       }
     } else if (isDynamicZoneAttribute(attribute)) {
-      store[attributeName] = (attributeValue as FileEntryDynamicZone[]).map(({ __component, id }) => getComponentData(__component, `${id}`, { fileIdToDbId, componentsDataStore }));
+      store[attributeName] = (attributeValue as FileEntryDynamicZone[]).map(({ __component, id }) =>
+        getComponentData(__component, `${id}`, { fileIdToDbId, componentsDataStore, allowNonExistentImages }),
+      );
     } else if (isMediaAttribute(attribute)) {
       if (attribute.multiple) {
-        store[attributeName] = (attributeValue as (number | string)[]).map((id) => fileIdToDbId.getMapping('plugin::upload.file', id)).filter((id) => id !== undefined);
+        store[attributeName] = (attributeValue as (number | string)[]).map((id) => fileIdToDbId.getMapping('plugin::upload.file', id));
+
+        if (allowNonExistentImages) {
+          store[attributeName] = store[attributeName].filter((id: number | string | undefined) => id !== undefined);
+        }
       } else {
         store[attributeName] = fileIdToDbId.getMapping('plugin::upload.file', attributeValue as number | string);
         // if the media wasn't found remove it from the update
-        if (!store[attributeName]) {
+        if (!store[attributeName] && allowNonExistentImages) {
           delete fileEntry[attributeName];
           delete store[attributeName];
         }

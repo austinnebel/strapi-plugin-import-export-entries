@@ -40,7 +40,7 @@ class IdMapper {
  * Import data.
  * @returns {Promise<ImportDataRes>}
  */
-const importDataV2 = (fileContent, { slug: slugArg, user, idField, }) => __awaiter(void 0, void 0, void 0, function* () {
+const importDataV2 = (fileContent, { slug: slugArg, user, idField, allowNonExistentImages, }) => __awaiter(void 0, void 0, void 0, function* () {
     const { data } = fileContent;
     const slugs = Object.keys(data);
     let failures = [];
@@ -57,13 +57,15 @@ const importDataV2 = (fileContent, { slug: slugArg, user, idField, }) => __await
     // Import content types without setting relations.
     for (const slug of contentTypeSlugs) {
         const res = yield importContentTypeSlug(data[slug], Object.assign(Object.assign({ slug: slug, user }, (slug === slugArg ? { idField } : {})), { importStage: 'simpleAttributes', fileIdToDbId,
-            componentsDataStore }));
+            componentsDataStore,
+            allowNonExistentImages }));
         failures.push(...res.failures);
     }
     // Set relations of content types.
     for (const slug of contentTypeSlugs) {
         const res = yield importContentTypeSlug(data[slug], Object.assign(Object.assign({ slug: slug, user }, (slug === slugArg ? { idField } : {})), { importStage: 'relationAttributes', fileIdToDbId,
-            componentsDataStore }));
+            componentsDataStore,
+            allowNonExistentImages }));
         failures.push(...res.failures);
     }
     // Sync primary key sequence for postgres databases.
@@ -111,7 +113,7 @@ const importMedia = (slugEntries, { user, fileIdToDbId }) => __awaiter(void 0, v
         failures,
     };
 });
-const importContentTypeSlug = (slugEntries, { slug, user, idField, importStage, fileIdToDbId, componentsDataStore, }) => __awaiter(void 0, void 0, void 0, function* () {
+const importContentTypeSlug = (slugEntries, { slug, user, idField, importStage, fileIdToDbId, componentsDataStore, allowNonExistentImages, }) => __awaiter(void 0, void 0, void 0, function* () {
     let fileEntries = (0, lodash_1.toPairs)(slugEntries);
     // Sort localized data with default locale first.
     const sortDataByLocale = () => __awaiter(void 0, void 0, void 0, function* () {
@@ -134,7 +136,7 @@ const importContentTypeSlug = (slugEntries, { slug, user, idField, importStage, 
     const failures = [];
     for (let [fileId, fileEntry] of fileEntries) {
         try {
-            yield updateOrCreate(user, slug, fileId, fileEntry, idField, { importStage, fileIdToDbId, componentsDataStore });
+            yield updateOrCreate(user, slug, fileId, fileEntry, idField, { importStage, fileIdToDbId, componentsDataStore, allowNonExistentImages });
         }
         catch (err) {
             strapi.log.error(err);
@@ -145,7 +147,7 @@ const importContentTypeSlug = (slugEntries, { slug, user, idField, importStage, 
         failures,
     };
 });
-const updateOrCreate = (user, slug, fileId, fileEntryArg, idFieldArg, { importStage, fileIdToDbId, componentsDataStore }) => __awaiter(void 0, void 0, void 0, function* () {
+const updateOrCreate = (user, slug, fileId, fileEntryArg, idFieldArg, { importStage, fileIdToDbId, componentsDataStore, allowNonExistentImages, }) => __awaiter(void 0, void 0, void 0, function* () {
     var _c, _d;
     const schema = (0, models_1.getModel)(slug);
     const idField = idFieldArg || ((_d = (_c = schema === null || schema === void 0 ? void 0 : schema.pluginOptions) === null || _c === void 0 ? void 0 : _c['import-export-entries']) === null || _d === void 0 ? void 0 : _d.idField) || 'id';
@@ -158,7 +160,7 @@ const updateOrCreate = (user, slug, fileId, fileEntryArg, idFieldArg, { importSt
         fileEntry = (0, pick_1.default)(fileEntry, attributeNames);
     }
     else if (importStage === 'relationAttributes') {
-        fileEntry = setComponents(schema, fileEntry, { fileIdToDbId, componentsDataStore });
+        fileEntry = setComponents(schema, fileEntry, { fileIdToDbId, componentsDataStore, allowNonExistentImages });
         const attributeNames = (0, models_1.getModelAttributes)(slug, { filterType: ['component', 'dynamiczone', 'media', 'relation'] })
             .map(({ name }) => name)
             .concat('id', 'localizations', 'locale');
@@ -196,7 +198,7 @@ function removeComponents(schema, fileEntry) {
     }
     return Object.assign(Object.assign({}, fileEntry), (store || {}));
 }
-function setComponents(schema, fileEntry, { fileIdToDbId, componentsDataStore }) {
+function setComponents(schema, fileEntry, { fileIdToDbId, componentsDataStore, allowNonExistentImages, }) {
     const store = {};
     for (const [attributeName, attribute] of Object.entries(schema.attributes)) {
         const attributeValue = fileEntry[attributeName];
@@ -205,23 +207,26 @@ function setComponents(schema, fileEntry, { fileIdToDbId, componentsDataStore })
         }
         else if ((0, models_1.isComponentAttribute)(attribute)) {
             if (attribute.repeatable) {
-                store[attributeName] = attributeValue.map((componentFileId) => getComponentData(attribute.component, `${componentFileId}`, { fileIdToDbId, componentsDataStore }));
+                store[attributeName] = attributeValue.map((componentFileId) => getComponentData(attribute.component, `${componentFileId}`, { fileIdToDbId, componentsDataStore, allowNonExistentImages }));
             }
             else {
-                store[attributeName] = getComponentData(attribute.component, `${attributeValue}`, { fileIdToDbId, componentsDataStore });
+                store[attributeName] = getComponentData(attribute.component, `${attributeValue}`, { fileIdToDbId, componentsDataStore, allowNonExistentImages });
             }
         }
         else if ((0, models_1.isDynamicZoneAttribute)(attribute)) {
-            store[attributeName] = attributeValue.map(({ __component, id }) => getComponentData(__component, `${id}`, { fileIdToDbId, componentsDataStore }));
+            store[attributeName] = attributeValue.map(({ __component, id }) => getComponentData(__component, `${id}`, { fileIdToDbId, componentsDataStore, allowNonExistentImages }));
         }
         else if ((0, models_1.isMediaAttribute)(attribute)) {
             if (attribute.multiple) {
-                store[attributeName] = attributeValue.map((id) => fileIdToDbId.getMapping('plugin::upload.file', id)).filter((id) => id !== undefined);
+                store[attributeName] = attributeValue.map((id) => fileIdToDbId.getMapping('plugin::upload.file', id));
+                if (allowNonExistentImages) {
+                    store[attributeName] = store[attributeName].filter((id) => id !== undefined);
+                }
             }
             else {
                 store[attributeName] = fileIdToDbId.getMapping('plugin::upload.file', attributeValue);
-                // if the media wasn't found remove it from the update
-                if (!store[attributeName]) {
+                // if the media wasn't found and we are allowing non-existent media, delete from update
+                if (!store[attributeName] && allowNonExistentImages) {
                     delete fileEntry[attributeName];
                     delete store[attributeName];
                 }
@@ -234,7 +239,7 @@ function getComponentData(
 /** Slug of the component. */
 slug, 
 /** File id of the component. */
-fileId, { fileIdToDbId, componentsDataStore }) {
+fileId, { fileIdToDbId, componentsDataStore, allowNonExistentImages, }) {
     const schema = (0, models_1.getModel)(slug);
     const fileEntry = componentsDataStore[slug][`${fileId}`];
     if (fileEntry == null) {
@@ -249,23 +254,26 @@ fileId, { fileIdToDbId, componentsDataStore }) {
         }
         if ((0, models_1.isComponentAttribute)(attribute)) {
             if (attribute.repeatable) {
-                store[attributeName] = attributeValue.map((componentFileId) => getComponentData(attribute.component, `${componentFileId}`, { fileIdToDbId, componentsDataStore }));
+                store[attributeName] = attributeValue.map((componentFileId) => getComponentData(attribute.component, `${componentFileId}`, { fileIdToDbId, componentsDataStore, allowNonExistentImages }));
             }
             else {
-                store[attributeName] = getComponentData(attribute.component, `${attributeValue}`, { fileIdToDbId, componentsDataStore });
+                store[attributeName] = getComponentData(attribute.component, `${attributeValue}`, { fileIdToDbId, componentsDataStore, allowNonExistentImages });
             }
         }
         else if ((0, models_1.isDynamicZoneAttribute)(attribute)) {
-            store[attributeName] = attributeValue.map(({ __component, id }) => getComponentData(__component, `${id}`, { fileIdToDbId, componentsDataStore }));
+            store[attributeName] = attributeValue.map(({ __component, id }) => getComponentData(__component, `${id}`, { fileIdToDbId, componentsDataStore, allowNonExistentImages }));
         }
         else if ((0, models_1.isMediaAttribute)(attribute)) {
             if (attribute.multiple) {
-                store[attributeName] = attributeValue.map((id) => fileIdToDbId.getMapping('plugin::upload.file', id)).filter((id) => id !== undefined);
+                store[attributeName] = attributeValue.map((id) => fileIdToDbId.getMapping('plugin::upload.file', id));
+                if (allowNonExistentImages) {
+                    store[attributeName] = store[attributeName].filter((id) => id !== undefined);
+                }
             }
             else {
                 store[attributeName] = fileIdToDbId.getMapping('plugin::upload.file', attributeValue);
                 // if the media wasn't found remove it from the update
-                if (!store[attributeName]) {
+                if (!store[attributeName] && allowNonExistentImages) {
                     delete fileEntry[attributeName];
                     delete store[attributeName];
                 }

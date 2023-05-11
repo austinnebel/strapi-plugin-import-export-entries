@@ -19,6 +19,9 @@
   "plugin.form.field.id-field.hint": "Choose the field used as a unique identifier",
   "plugin.form.field.id-field.label": "Id Field",
 
+  "plugin.form.field.allow-non-existent-images-field.hint": "If checked, the import will succeed even if media elements are not found.",
+  "plugin.form.field.allow-non-existent-images-field.label": "Allow Non-Existent Media",
+
   "plugin.page.homepage.section.quick-actions.title": "Quick Actions",
   "plugin.page.homepage.section.preferences.title": "Preferences",
   "plugin.page.homepage.section.need-help.title": "Need Help?",

@@ -15,10 +15,10 @@ const getModelAttributes = async ({ slug }) => {
   return resData.data.attribute_names;
 };
 
-const importData = async ({ slug, data, format, idField }) => {
+const importData = async ({ slug, data, format, idField, allowNonExistentImages }) => {
   const resData = await request(`/${pluginId}/import`, {
     method: 'POST',
-    body: { slug, data, format, idField },
+    body: { slug, data, format, idField, allowNonExistentImages },
   });
   return resData;
 };

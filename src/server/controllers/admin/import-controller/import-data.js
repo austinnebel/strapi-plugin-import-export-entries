@@ -11,7 +11,7 @@ async function importData(ctx) {
   }
 
   const { user } = ctx.state;
-  const { slug, data: dataRaw, format, idField } = ctx.request.body;
+  const { slug, data: dataRaw, format, idField, allowNonExistentImages } = ctx.request.body;
 
   const fileContent = await getService('import').parseInputData(format, dataRaw, { slug });
 
@@ -21,6 +21,7 @@ async function importData(ctx) {
       slug,
       user,
       idField,
+      allowNonExistentImages,
     });
   } else {
     res = await getService('import').importData(dataRaw, {
